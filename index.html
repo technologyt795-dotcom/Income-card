@@ -1,0 +1,117 @@
+﻿<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>انهيار الراتب</title>
+
+<style>
+body{
+    margin:0;
+    background:transparent; /* غيرها إلى #00ff00 لو جرين سكرين */
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    font-family:Tahoma;
+    overflow:hidden;
+}
+
+.card{
+    width:340px;
+    height:170px;
+    background:#ffffff;
+    border-top:8px solid #1e7a34;
+    border-radius:20px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    box-shadow:0 10px 25px rgba(0,0,0,0.25);
+    transform:translateY(-250px);
+    animation:slideDown 0.7s ease forwards;
+}
+
+@keyframes slideDown{
+    to{ transform:translateY(0); }
+}
+
+.title{
+    font-size:22px;
+    margin-bottom:10px;
+}
+
+.amount{
+    font-size:38px;
+    font-weight:bold;
+    color:#1e7a34;
+    transition:color 0.3s ease;
+}
+
+.message{
+    margin-top:10px;
+    font-size:18px;
+    color:red;
+    opacity:0;
+    transition:opacity 0.5s ease;
+}
+
+.showMessage{
+    opacity:1;
+}
+
+.shake{
+    animation:shake 0.4s;
+}
+
+@keyframes shake{
+    0%{transform:translateX(0);}
+    25%{transform:translateX(-7px);}
+    50%{transform:translateX(7px);}
+    75%{transform:translateX(-7px);}
+    100%{transform:translateX(0);}
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+    <div class="title">راتبك الشهري</div>
+    <div class="amount" id="income">10000 ريال</div>
+    <div class="message" id="msg">⚠️ هكذا تضيع أموالك!</div>
+</div>
+
+<script>
+let current = 10000;
+let target = 0;
+let duration = 2000;
+let frameRate = 60;
+let totalFrames = Math.round((duration/1000) * frameRate);
+let decrement = current / totalFrames;
+
+let amountEl = document.getElementById("income");
+let msgEl = document.getElementById("msg");
+
+let counter = setInterval(() => {
+
+    current -= decrement;
+
+    if(current <= 5000){
+        amountEl.style.color = "red";
+    }
+
+    if(current <= target){
+        current = target;
+        clearInterval(counter);
+
+        amountEl.classList.add("shake");
+        msgEl.classList.add("showMessage");
+    }
+
+    amountEl.innerText = Math.floor(current).toLocaleString() + " ريال";
+
+}, 1000 / frameRate);
+</script>
+
+</body>
+</html>
