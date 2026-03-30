@@ -185,7 +185,9 @@ tbody tr:last-child{border-bottom:none}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#0f172a;color:#fff;padding:12px 24px;border-radius:99px;font-size:14px;font-weight:600;z-index:9999;transition:.4s;opacity:0;pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 
-
+/* MOBILE MENU TOGGLE */
+.menu-toggle{display:none;position:fixed;top:16px;left:16px;z-index:200;background:#0f172a;color:#fff;border:none;border-radius:10px;padding:10px;font-size:20px;cursor:pointer}
+@media(max-width:700px){.menu-toggle{display:block}}
 
 /* FONT LOADER SCREEN */
 #font-loader{position:fixed;inset:0;background:#f1f5f9;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .4s ease}
