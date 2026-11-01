@@ -4388,5 +4388,157 @@
   } catch (e) {}
 })();
 </script>
+    <script>
+(function () {
+  "use strict";
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function cur() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1); }
+  function sel() { return window.__bmSel || cur(); }
+  function inSel(r) {
+    if (!r || !r.date) return false;
+    return sel() === "all" || String(r.date).slice(0, 7) === sel();
+  }
+  function budgetMonth() { return sel() === "all" ? cur() : sel(); }
+  function inBudget(r) { return !!(r && r.date && String(r.date).slice(0, 7) === budgetMonth()); }
+  function byDateAsc(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }
+  function monthLabel(k) { var p = k.split("-"); return AR_MONTHS[+p[1] - 1] + " " + p[0]; }
+  function monthsWithData() {
+    var set = {};
+    getData(KEYS.income).concat(getData(KEYS.expenses)).forEach(function (r) {
+      if (r && r.date) set[String(r.date).slice(0, 7)] = 1;
+    });
+    return Object.keys(set).sort();
+  }
+
+  /* الحسابات على الشهر المحدد (أو كل الأشهر) */
+  window.getAggregates = function () {
+    var income = getData(KEYS.income), expenses = getData(KEYS.expenses);
+    var limits = sel() === "all" ? {} : getData(KEYS.limits, {});
+    var incM = income.filter(inSel), expM = expenses.filter(inSel);
+    var totalIncome = incM.reduce(function (s, i) { return s + Number(i.amount); }, 0);
+    var totalExpenses = expM.reduce(function (s, e) { return s + Number(e.amount); }, 0);
+    var balance = totalIncome - totalExpenses;
+    var savingsRate = totalIncome > 0 ? (balance / totalIncome) * 100 : 0;
+    var byCategory = expM.reduce(function (a, e) {
+      a[e.category] = (a[e.category] || 0) + Number(e.amount); return a;
+    }, {});
+    var health = 50;
+    if (savingsRate > 0) health += Math.min(30, (savingsRate / 20) * 30);
+    var violations = 0;
+    Object.keys(byCategory).forEach(function (c) { if (limits[c] && byCategory[c] > limits[c]) violations++; });
+    if (violations === 0 && Object.keys(limits).length > 0) health += 20;
+    else health -= violations * 5;
+    health = Math.max(0, Math.min(100, Math.round(health)));
+    var byMonth = {}, incomeByMonth = {};
+    expenses.slice().sort(byDateAsc).forEach(function (e) {
+      var d = new Date(e.date), k = AR_MONTHS[d.getMonth()] + " " + d.getFullYear();
+      byMonth[k] = (byMonth[k] || 0) + Number(e.amount);
+    });
+    income.slice().sort(byDateAsc).forEach(function (i) {
+      var d = new Date(i.date), k = AR_MONTHS[d.getMonth()] + " " + d.getFullYear();
+      incomeByMonth[k] = (incomeByMonth[k] || 0) + Number(i.amount);
+    });
+    return { totalIncome: totalIncome, totalExpenses: totalExpenses, balance: balance,
+      savingsRate: savingsRate, byCategory: byCategory, health: health,
+      byMonth: byMonth, incomeByMonth: incomeByMonth, limits: limits };
+  };
+
+  /* صفحة الميزانية: شهر محدد (وفي "كل الأشهر" تعرض الشهر الحالي) */
+  window.renderBudget = function () {
+    var expenses = getData(KEYS.expenses).filter(inBudget);
+    var limits = getData(KEYS.limits, {});
+    var byCategory = expenses.reduce(function (a, e) {
+      a[e.category] = (a[e.category] || 0) + Number(e.amount); return a;
+    }, {});
+    document.getElementById("budget-grid").innerHTML = getExpenseCats().map(function (cat) {
+      var spent = byCategory[cat] || 0, limit = limits[cat] || 0;
+      var pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
+      var exceeded = limit > 0 && spent > limit;
+      var barClass = exceeded ? "bar-red" : pct >= 80 ? "bar-orange" : "bar-blue";
+      return `<div class="budget-cat-card">
+      <div class="budget-cat-header"><span class="budget-cat-name">${cat}</span>${exceeded ? `<span class="budget-exceeded">⚠️ تجاوز</span>` : ""}</div>
+      <div class="budget-amounts">
+        <span>المنفق: <strong style="color:${exceeded ? "#dc2626" : "#0f172a"}">${fmt(spent)}</strong></span>
+        <span>الحد: <strong>${limit > 0 ? fmt(limit) : "غير محدد"}</strong></span>
+      </div>
+      ${limit > 0 ? `<div class="progress-wrap"><div class="progress-bar ${barClass}" style="width:${pct}%"></div></div><p style="font-size:12px;color:#64748b;text-align:center;margin-top:4px">${pct.toFixed(1)}% مستخدم</p>` : ""}
+      <button class="budget-edit" onclick="toggleBudgetEdit('${cat}')">✏️ ${limit > 0 ? "تعديل الحد" : "تحديد حد"}</button>
+      <div class="budget-edit-row" id="edit-row-${cat}" style="display:none">
+        <input type="number" placeholder="أدخل الحد..." id="limit-input-${cat}" min="0">
+        <button onclick="saveLimit('${cat}')">✓ حفظ</button>
+      </div>
+    </div>`;
+    }).join("");
+    var p = document.querySelector("#page-budget .page-header p");
+    if (p) p.textContent = "حدد حدوداً لمصاريفك وتحكم في التزامك بها (الأرقام لشهر " + monthLabel(budgetMonth()) + ")" +
+      (sel() === "all" ? "، الحدود شهرية لذلك نعرض الشهر الحالي" : "");
+  };
+
+  /* عناوين بطاقات لوحة التحكم حسب الاختيار */
+  var prevRD = window.renderDashboard;
+  window.renderDashboard = function () {
+    buildOptions();
+    prevRD();
+    var s = sel(), labels = document.querySelectorAll("#metrics-grid .metric-label");
+    var t = s === "all" ? ["إجمالي الدخل", "إجمالي المصاريف", "الرصيد المتبقي"]
+      : s === cur() ? ["دخل هذا الشهر", "مصاريف هذا الشهر", "المتبقي هذا الشهر"]
+      : ["دخل " + monthLabel(s), "مصاريف " + monthLabel(s), "المتبقي في " + monthLabel(s)];
+    for (var i = 0; i < 3; i++) if (labels[i]) labels[i].textContent = t[i];
+  };
+
+  /* بطاقات "هذا الشهر" تعمل على الشهر المحدد */
+  var origWidgets = window.renderDashWidgets;
+  window.renderDashWidgets = function () {
+    var s = sel();
+    if (s === "all" || s === cur()) return origWidgets();
+    var p = s.split("-"), y = +p[0], m = +p[1] - 1, RD = Date;
+    var last = new RD(y, m + 1, 0).getDate();
+    function FD() {
+      if (arguments.length === 0) return new RD(y, m, last);
+      return new (Function.prototype.bind.apply(RD, [null].concat([].slice.call(arguments))))();
+    }
+    FD.prototype = RD.prototype; FD.now = RD.now; FD.UTC = RD.UTC; FD.parse = RD.parse;
+    window.Date = FD;
+    try { origWidgets(); } finally { window.Date = RD; }
+  };
+
+  /* شريط اختيار الشهر */
+  var main = document.querySelector("main.main");
+  var bar = document.createElement("div");
+  bar.id = "month-bar";
+  bar.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 14px";
+  bar.innerHTML = '<span style="font-weight:700;font-size:14px">📅 الشهر المعروض:</span>' +
+    '<select id="month-pick" class="filter-control" style="width:auto;min-width:170px"></select>';
+  if (main) main.insertBefore(bar, main.firstChild);
+  var pick = document.getElementById("month-pick");
+
+  function buildOptions() {
+    var list = monthsWithData();
+    if (list.indexOf(cur()) < 0) list.push(cur());
+    list.sort().reverse();
+    pick.innerHTML = list.map(function (k) { return '<option value="' + k + '">' + monthLabel(k) + "</option>"; }).join("") +
+      '<option value="all">كل الأشهر</option>';
+    pick.value = sel();
+  }
+  function refreshActive() {
+    var act = document.querySelector(".page.active");
+    if (act) renderPage(act.id.replace("page-", ""));
+  }
+  pick.onchange = function () { window.__bmSel = pick.value; refreshActive(); };
+
+  var origShow = window.showPage;
+  window.showPage = function (id, btn) {
+    buildOptions();
+    origShow(id, btn);
+    bar.style.display = ["dashboard", "budget", "charts", "diagnosis"].indexOf(id) >= 0 ? "flex" : "none";
+  };
+
+  /* الاختيار الافتراضي: الشهر الحالي، وإن لم يكن فيه بيانات فأحدث شهر فيه بيانات */
+  var data = monthsWithData();
+  window.__bmSel = (data.indexOf(cur()) >= 0 || !data.length) ? cur() : data[data.length - 1];
+  buildOptions();
+})();
+</script>
+
   </body>
 </html>
