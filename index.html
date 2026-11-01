@@ -4539,6 +4539,89 @@
   buildOptions();
 })();
 </script>
+<script>
+(function () {
+  "use strict";
+  var KEY = "bm_payday";
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function getPayday() {
+    var v = parseInt(localStorage.getItem(KEY), 10);
+    return v >= 1 && v <= 31 ? v : 27;
+  }
+  function dim(y, m) { return new Date(y, m + 1, 0).getDate(); }
+  function pdDate(y, m, p) { return new Date(y, m, Math.min(p, dim(y, m))); }
+  function toStr(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function sum(arr) { return arr.reduce(function (s, r) { return s + Number(r.amount); }, 0); }
+
+  function cardHtml() {
+    var p = getPayday();
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var y = today.getFullYear(), m = today.getMonth();
+    var thisP = pdDate(y, m, p), last, next;
+    if (today >= thisP) { last = thisP; next = pdDate(y, m + 1, p); }
+    else { last = pdDate(y, m - 1, p); next = thisP; }
+    var isToday = today.getTime() === last.getTime();
+    var daysLeft = Math.round((next - today) / 86400000);
+    var s = toStr(last), e = toStr(next);
+    function inCycle(r) { return !!(r && r.date && r.date >= s && r.date < e); }
+    var inc = sum(getData(KEYS.income).filter(inCycle));
+    var exp = sum(getData(KEYS.expenses).filter(inCycle));
+    var remaining = inc - exp;
+    var daily = daysLeft > 0 ? Math.floor(remaining / daysLeft) : 0;
+    var note;
+    if (inc === 0) note = "سجّل راتبك بتاريخ نزوله لنحسب لك الرصيد.";
+    else if (remaining <= 0) note = "⚠️ نفد رصيد هذه الفترة قبل موعد الراتب.";
+    else note = "تستطيع صرف نحو <strong>" + fmt(daily) + "</strong> يومياً حتى الراتب.";
+    var big = isToday ? "اليوم 🎉" : daysLeft;
+    var unit = isToday ? "نزل راتبك" : "يوم على الراتب";
+    return '<div class="widget-card" id="payday-card">' +
+      '<div class="widget-title">💰 العدّ التنازلي للراتب</div>' +
+      '<div class="daily-rate-circle">' +
+      '<div class="daily-big" style="color:#4f46e5">' + big + "</div>" +
+      '<div class="daily-label">' + unit + "</div>" +
+      '<div class="daily-compare">المتبقي منذ ' + last.getDate() + " " + AR_MONTHS[last.getMonth()] +
+      ': <strong style="color:' + (remaining >= 0 ? "#16a34a" : "#dc2626") + '">' + fmt(remaining) + "</strong><br>" + note + "</div>" +
+      '<div style="font-size:12px;color:#94a3b8;margin-top:10px">يوم الراتب: <strong>' + p +
+      '</strong> <button class="btn-clear-filter" style="padding:3px 10px" onclick="openPaydaySetting()">تغيير</button></div>' +
+      "</div></div>";
+  }
+
+  var prevW = window.renderDashWidgets;
+  window.renderDashWidgets = function () {
+    prevW();
+    var g = document.getElementById("dash-widgets");
+    if (g) g.insertAdjacentHTML("afterbegin", cardHtml());
+  };
+
+  window.openPaydaySetting = function () {
+    var o = document.createElement("div");
+    o.className = "confirm-overlay open";
+    o.innerHTML =
+      '<div class="confirm-box"><h3>متى ينزل راتبك؟</h3>' +
+      "<p>اختر يوم نزول الراتب لنحسب لك الأيام المتبقية والمبلغ اليومي المتاح.</p>" +
+      '<div class="confirm-btns" style="flex-wrap:wrap;margin-bottom:14px">' +
+      '<button class="btn btn-primary" data-d="27">يوم 27 (الموظفون)</button>' +
+      '<button class="btn btn-outline" data-d="1">يوم 1 (المتقاعدون وبعض الشركات)</button></div>' +
+      '<div class="confirm-btns"><input type="number" min="1" max="31" id="pd-custom" class="form-control" placeholder="يوم آخر (1-31)" style="max-width:170px">' +
+      '<button class="btn btn-success" id="pd-save">حفظ</button></div></div>';
+    document.body.appendChild(o);
+    function save(d) {
+      d = parseInt(d, 10);
+      if (!(d >= 1 && d <= 31)) { toast("❗ أدخل يوماً من 1 إلى 31"); return; }
+      localStorage.setItem(KEY, String(d));
+      document.body.removeChild(o);
+      renderDashboard();
+      toast("✅ تم حفظ يوم الراتب: " + d);
+    }
+    Array.prototype.forEach.call(o.querySelectorAll("[data-d]"), function (b) {
+      b.onclick = function () { save(b.getAttribute("data-d")); };
+    });
+    o.querySelector("#pd-save").onclick = function () { save(o.querySelector("#pd-custom").value); };
+    o.onclick = function (ev) { if (ev.target === o) document.body.removeChild(o); };
+  };
+})();
+</script>
 
   </body>
 </html>
