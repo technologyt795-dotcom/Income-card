@@ -12,6 +12,20 @@
     />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+/* يمنع تعبئة بيانات تجريبية تلقائياً عند أول زيارة */
+(function () {
+  try {
+    if (localStorage.getItem("bm_income") === null && localStorage.getItem("bm_expenses") === null) {
+      localStorage.setItem("bm_income", "[]");
+      localStorage.setItem("bm_expenses", "[]");
+      localStorage.setItem("bm_savings", "[]");
+      localStorage.setItem("bm_limits", "{}");
+      localStorage.setItem("bm_welcome_pending", "1");
+    }
+  } catch (e) {}
+})();
+</script>
     <style>
       * {
         box-sizing: border-box;
@@ -4146,5 +4160,233 @@
         }
       }, 100);
     </script>
+<script>
+(function () {
+  "use strict";
+
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function localToday() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+  function monthKey() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1);
+  }
+  function inMonth(r) {
+    return !!(r && r.date && String(r.date).slice(0, 7) === monthKey());
+  }
+  function byDateAsc(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }
+
+  /* تاريخ اليوم بتوقيت الجهاز */
+  window.todayStr = localToday;
+  var inDate = document.getElementById("in-date");
+  var exDate = document.getElementById("ex-date");
+  if (inDate) inDate.value = localToday();
+  if (exDate) exDate.value = localToday();
+
+  /* 3) حذف "نسخة مجانية" */
+  var infoTitle = document.querySelector(".sidebar-info strong");
+  if (infoTitle) infoTitle.textContent = "النسخة الكاملة";
+
+  /* 1) الحسابات على الشهر الحالي فقط */
+  window.getAggregates = function () {
+    var income = getData(KEYS.income);
+    var expenses = getData(KEYS.expenses);
+    var limits = getData(KEYS.limits, {});
+    var incM = income.filter(inMonth);
+    var expM = expenses.filter(inMonth);
+    var totalIncome = incM.reduce(function (s, i) { return s + Number(i.amount); }, 0);
+    var totalExpenses = expM.reduce(function (s, e) { return s + Number(e.amount); }, 0);
+    var balance = totalIncome - totalExpenses;
+    var savingsRate = totalIncome > 0 ? (balance / totalIncome) * 100 : 0;
+    var byCategory = expM.reduce(function (a, e) {
+      a[e.category] = (a[e.category] || 0) + Number(e.amount);
+      return a;
+    }, {});
+    var health = 50;
+    if (savingsRate > 0) health += Math.min(30, (savingsRate / 20) * 30);
+    var violations = 0;
+    Object.keys(byCategory).forEach(function (c) {
+      if (limits[c] && byCategory[c] > limits[c]) violations++;
+    });
+    if (violations === 0 && Object.keys(limits).length > 0) health += 20;
+    else health -= violations * 5;
+    health = Math.max(0, Math.min(100, Math.round(health)));
+
+    /* الرسوم الشهرية تبقى لكل الأشهر، مرتبة من الأقدم للأحدث */
+    var byMonth = {}, incomeByMonth = {};
+    expenses.slice().sort(byDateAsc).forEach(function (e) {
+      var d = new Date(e.date);
+      var k = AR_MONTHS[d.getMonth()] + " " + d.getFullYear();
+      byMonth[k] = (byMonth[k] || 0) + Number(e.amount);
+    });
+    income.slice().sort(byDateAsc).forEach(function (i) {
+      var d = new Date(i.date);
+      var k = AR_MONTHS[d.getMonth()] + " " + d.getFullYear();
+      incomeByMonth[k] = (incomeByMonth[k] || 0) + Number(i.amount);
+    });
+    return {
+      totalIncome: totalIncome, totalExpenses: totalExpenses, balance: balance,
+      savingsRate: savingsRate, byCategory: byCategory, health: health,
+      byMonth: byMonth, incomeByMonth: incomeByMonth, limits: limits
+    };
+  };
+
+  /* عناوين بطاقات لوحة التحكم تصبح "هذا الشهر" */
+  var originalRenderDashboard = window.renderDashboard;
+  window.renderDashboard = function () {
+    originalRenderDashboard();
+    var labels = document.querySelectorAll("#metrics-grid .metric-label");
+    if (labels[0]) labels[0].textContent = "دخل هذا الشهر";
+    if (labels[1]) labels[1].textContent = "مصاريف هذا الشهر";
+    if (labels[2]) labels[2].textContent = "المتبقي هذا الشهر";
+  };
+
+  /* صفحة الميزانية: مصاريف الشهر الحالي فقط */
+  window.renderBudget = function () {
+    var expenses = getData(KEYS.expenses).filter(inMonth);
+    var limits = getData(KEYS.limits, {});
+    var cats = getExpenseCats();
+    var byCategory = expenses.reduce(function (a, e) {
+      a[e.category] = (a[e.category] || 0) + Number(e.amount);
+      return a;
+    }, {});
+    document.getElementById("budget-grid").innerHTML = cats
+      .map(function (cat) {
+        var spent = byCategory[cat] || 0;
+        var limit = limits[cat] || 0;
+        var pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
+        var exceeded = limit > 0 && spent > limit;
+        var barClass = exceeded ? "bar-red" : pct >= 80 ? "bar-orange" : "bar-blue";
+        return `<div class="budget-cat-card">
+      <div class="budget-cat-header">
+        <span class="budget-cat-name">${cat}</span>
+        ${exceeded ? `<span class="budget-exceeded">⚠️ تجاوز</span>` : ""}
+      </div>
+      <div class="budget-amounts">
+        <span>المنفق: <strong style="color:${exceeded ? "#dc2626" : "#0f172a"}">${fmt(spent)}</strong></span>
+        <span>الحد: <strong>${limit > 0 ? fmt(limit) : "غير محدد"}</strong></span>
+      </div>
+      ${limit > 0 ? `<div class="progress-wrap"><div class="progress-bar ${barClass}" style="width:${pct}%"></div></div><p style="font-size:12px;color:#64748b;text-align:center;margin-top:4px">${pct.toFixed(1)}% مستخدم</p>` : ""}
+      <button class="budget-edit" onclick="toggleBudgetEdit('${cat}')">✏️ ${limit > 0 ? "تعديل الحد" : "تحديد حد"}</button>
+      <div class="budget-edit-row" id="edit-row-${cat}" style="display:none">
+        <input type="number" placeholder="أدخل الحد..." id="limit-input-${cat}" min="0">
+        <button onclick="saveLimit('${cat}')">✓ حفظ</button>
+      </div>
+    </div>`;
+      })
+      .join("");
+    var p = document.querySelector("#page-budget .page-header p");
+    if (p) {
+      var now = new Date();
+      p.textContent = "حدد حدوداً لمصاريفك وتحكم في التزامك بها (الأرقام لشهر " +
+        AR_MONTHS[now.getMonth()] + " " + now.getFullYear() + ")";
+    }
+  };
+
+  function renderEverything() {
+    renderDashboard(); renderIncomeTable(); renderExpenseTable();
+    renderBudget(); renderSavings(); renderCharts(); renderDiagnosis();
+  }
+
+  /* 2) زر مسح البيانات يمسح الحدود أيضاً */
+  window.clearAllData = function () {
+    setData(KEYS.income, []);
+    setData(KEYS.expenses, []);
+    setData(KEYS.savings, []);
+    setData(KEYS.limits, {});
+    closeConfirm();
+    toast("🗑 تم مسح جميع البيانات");
+    renderEverything();
+  };
+
+  /* 2) شاشة الترحيب وبيانات تجريبية للشهر الحالي والسابق */
+  function demoDate(monthOffset, day) {
+    var now = new Date();
+    var first = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+    var y = first.getFullYear();
+    var m = first.getMonth() + 1;
+    var last = new Date(y, m, 0).getDate();
+    var d = Math.min(day, last);
+    if (monthOffset === 0) d = Math.min(d, now.getDate());
+    return y + "-" + pad(m) + "-" + pad(d);
+  }
+  function newestFirst(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }
+
+  function loadDemo() {
+    var inc = [
+      [0, 1, 12000, "راتب", "راتب الشهر"],
+      [0, 10, 1800, "دخل جانبي", "عمل حر"],
+      [-1, 1, 12000, "راتب", "راتب الشهر"],
+      [-1, 12, 1500, "دخل جانبي", "عمل حر"]
+    ].map(function (r) {
+      return { id: uid(), amount: r[2], category: r[3], date: demoDate(r[0], r[1]), desc: r[4] };
+    }).sort(newestFirst);
+    var exp = [
+      [0, 1, 3500, "سكن", "إيجار الشقة"],
+      [0, 3, 1100, "طعام", "بقالة"],
+      [0, 14, 420, "طعام", "مطاعم"],
+      [0, 6, 350, "مواصلات", "وقود"],
+      [0, 9, 260, "ترفيه", "سينما"],
+      [0, 18, 300, "ترفيه", "نزهة"],
+      [0, 12, 950, "تسوق", "ملابس"],
+      [0, 5, 420, "فواتير", "كهرباء"],
+      [0, 15, 180, "فواتير", "إنترنت"],
+      [-1, 1, 3500, "سكن", "إيجار الشقة"],
+      [-1, 4, 1200, "طعام", "بقالة"],
+      [-1, 16, 500, "طعام", "مطاعم"],
+      [-1, 8, 400, "مواصلات", "وقود"],
+      [-1, 20, 650, "ترفيه", "ترفيه"],
+      [-1, 11, 600, "تسوق", "تسوق"],
+      [-1, 6, 650, "فواتير", "فواتير الشهر"]
+    ].map(function (r) {
+      return { id: uid(), amount: r[2], category: r[3], date: demoDate(r[0], r[1]), notes: r[4] };
+    }).sort(newestFirst);
+    setData(KEYS.income, inc);
+    setData(KEYS.expenses, exp);
+    setData(KEYS.limits, { "سكن": 4000, "طعام": 1600, "مواصلات": 600, "ترفيه": 700, "تسوق": 900, "فواتير": 800 });
+    setData(KEYS.savings, [
+      { id: uid(), name: "شراء سيارة جديدة", target: 50000, current: 15000 },
+      { id: uid(), name: "صندوق الطوارئ", target: 20000, current: 8500 }
+    ]);
+  }
+
+  function showWelcome() {
+    var o = document.createElement("div");
+    o.className = "confirm-overlay open";
+    o.id = "welcome-overlay";
+    o.innerHTML =
+      '<div class="confirm-box">' +
+      '<div style="font-size:48px;margin-bottom:12px">💰</div>' +
+      "<h3>مرحباً بك في إدارة ميزانيتي</h3>" +
+      "<p>كيف تحب أن تبدأ؟<br>ابدأ ببيانات فارغة لتسجل بياناتك أنت، أو جرّب النظام ببيانات تجريبية " +
+      "ثم امسحها من صفحة «إدارة البيانات» بزر «مسح جميع البيانات».</p>" +
+      '<div class="confirm-btns" style="flex-wrap:wrap">' +
+      '<button class="btn btn-primary" id="welcome-empty">ابدأ ببيانات فارغة</button>' +
+      '<button class="btn btn-outline" id="welcome-demo">جرّب بيانات تجريبية</button>' +
+      "</div></div>";
+    document.body.appendChild(o);
+    function done() {
+      try { localStorage.removeItem("bm_welcome_pending"); } catch (e) {}
+      if (o.parentNode) o.parentNode.removeChild(o);
+    }
+    document.getElementById("welcome-empty").onclick = function () {
+      done();
+      renderEverything();
+    };
+    document.getElementById("welcome-demo").onclick = function () {
+      loadDemo();
+      done();
+      renderEverything();
+      toast("✅ تم تحميل بيانات تجريبية، يمكنك مسحها من إدارة البيانات");
+    };
+  }
+
+  try {
+    if (localStorage.getItem("bm_welcome_pending") === "1") showWelcome();
+  } catch (e) {}
+})();
+</script>
   </body>
 </html>
