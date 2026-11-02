@@ -1433,6 +1433,14 @@
         color: #166534;
       }
       /* ========================================== */
+
+      /* إصلاح الجوال: مساحة لزر القائمة داخل شريط الشهر */
+      @media (max-width: 700px) {
+        #month-bar {
+          min-height: 64px;
+          padding-left: 76px !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -4345,7 +4353,7 @@
     }).sort(newestFirst);
     setData(KEYS.income, inc);
     setData(KEYS.expenses, exp);
-    setData(KEYS.limits, { "سكن": 4000, "طعام": 1600, "مواصلات": 600, "ترفيه": 700, "تسوق": 900, "فواتير": 800 });
+    setData(KEYS.limits, { "سكن": 4500, "طعام": 2000, "مواصلات": 600, "ترفيه": 900, "تسوق": 900, "فواتير": 800 });
     setData(KEYS.savings, [
       { id: uid(), name: "شراء سيارة جديدة", target: 50000, current: 15000 },
       { id: uid(), name: "صندوق الطوارئ", target: 20000, current: 8500 }
